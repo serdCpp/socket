@@ -3,8 +3,6 @@
 // tested by macOS 12.6.6, Window Server 2019
 //
 // Created by Denis (serdCpp)
-// git test
-
 
 #pragma once
 #ifndef serd_socketsTCP_h

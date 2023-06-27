@@ -1,2 +1,0 @@
-Z:\code\cpp\socketTCP\socketTCP_win\x64\Debug\socketTCP_win.exe
-Y:\code\cpp\socketTCP\socketTCP_win\x64\Debug\socketTCP_win.exe

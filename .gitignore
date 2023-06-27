@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+
+/socketTCP_win/.vs
+/.vs
+/socketTCP_win/x64
+/socketTCP_win/x86

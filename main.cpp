@@ -3,6 +3,7 @@
 // tested by macOS 12.6.6
 //
 // Created by Denis (serdCpp)
+//
 
 #include <iostream>
 #include <thread>

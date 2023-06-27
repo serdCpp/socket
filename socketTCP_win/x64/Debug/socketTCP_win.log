@@ -1,19 +1,19 @@
 ﻿  main.cpp
-Z:\code\cpp\socketTCP\socketsTCP.hpp(217,14): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
+Y:\code\cpp\socketTCP\socketsTCP.hpp(217,15): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
           with
           [
               _Rep=__int64
           ]
-Z:\code\cpp\socketTCP\socketsTCP.hpp(265,1): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
-Z:\code\cpp\socketTCP\socketsTCP.hpp(332,14): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
+Y:\code\cpp\socketTCP\socketsTCP.hpp(263,67): warning C4267: аргумент: преобразование из "size_t" в "int"; возможна потеря данных
+Y:\code\cpp\socketTCP\socketsTCP.hpp(330,15): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
           with
           [
               _Rep=__int64
           ]
-Z:\code\cpp\socketTCP\socketsTCP.hpp(430,14): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
+Y:\code\cpp\socketTCP\socketsTCP.hpp(428,15): warning C4244: инициализация: преобразование "_Rep" в "int", возможна потеря данных
           with
           [
               _Rep=__int64
           ]
-Z:\code\cpp\socketTCP\socketsTCP.hpp(454): warning C4267: =: преобразование из "size_t" в "unsigned long"; возможна потеря данных
-  socketTCP_win.vcxproj -> Z:\code\cpp\socketTCP\socketTCP_win\x64\Debug\socketTCP_win.exe
+Y:\code\cpp\socketTCP\socketsTCP.hpp(451,20): warning C4267: =: преобразование из "size_t" в "unsigned long"; возможна потеря данных
+  socketTCP_win.vcxproj -> Y:\code\cpp\socketTCP\socketTCP_win\x64\Debug\socketTCP_win.exe

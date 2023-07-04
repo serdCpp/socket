@@ -1,6 +1,5 @@
-// work in progress
 // exemple console UI for TCP socket server & client
-// tested by macOS 12.6.6
+// tested by macOS 12.6.6, Window Server 2019
 //
 // Created by Denis (serdCpp)
 // -std=c++17
@@ -98,10 +97,11 @@ int consoleChat(std::vector<std::string> exCommand) {
 		str+= "exit   - close programm.";
 		str+= "stop   - stop client or server.";
 		str+= "client - connect to chat server.";
-		str+= "         Exemple:\"-client 192.168.50.204:3487\"";
+		str+= "         Exemple:\"-client=192.168.50.204:3487\"";
 		str+= "         where 192.168.50.204 - server adrress";
 		str+= "         3487 - server port (default " + defPort + ").";
-		str+= "server - start chat server.\n";
+		str+= "server - start chat server.";
+		str+= "        Exemple:\"-server=3487\"";
 		str+= "         where 3487 - server port (default " + defPort + ").";
 		
 		showMessage(str);
@@ -211,7 +211,7 @@ int consoleChat(std::vector<std::string> exCommand) {
 		};
 
 		input.callBack = [](Input& input) -> bool {
-			return input.server->send(input.server->serd_lib::Socket::toString() + ":" + input.user);
+			return input.server->send("server:" + input.user);
 		};
 
 		auto threadRecv = [&input]() {
@@ -229,8 +229,13 @@ int consoleChat(std::vector<std::string> exCommand) {
 
 			if (!input.exit && input.server->socketIsValid())
 				showMessage(input.server->getError());
-			else
+			else {
+				if (input.server->haveError()) {
+					showMessage(input.server->getError());
+				};
 				showMessage("server stop");
+			};
+				
 
 			delete input.server;
 			input.server = nullptr;

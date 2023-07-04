@@ -40,7 +40,8 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES"
-      viewDebuggingEnabled = "No">
+      viewDebuggingEnabled = "No"
+      queueDebuggingEnabled = "No">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
@@ -53,12 +54,12 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "-client=127.0.0.1"
+            argument = "-client=192.168.50.204"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "-client=192.168.50.204"
-            isEnabled = "YES">
+            argument = "-client=127.0.0.1"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "&quot;Hello I&apos;m text message&quot;"

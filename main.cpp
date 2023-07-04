@@ -3,7 +3,7 @@
 // tested by macOS 12.6.6
 //
 // Created by Denis (serdCpp)
-//
+// -std=c++17
 
 #include <iostream>
 #include <thread>
@@ -15,7 +15,7 @@
 
 std::mutex mutexCout;
 
-void showMessage(const std::string&);
+void showMessage(const std::string&, const bool&);
 int consoleChat(std::vector<std::string>);
 
 int main(int argc, const char* argv[]) {
@@ -31,9 +31,15 @@ int main(int argc, const char* argv[]) {
 
 };
 
-void showMessage(const std::string& str) {
+void showMessage(const std::string& str, const bool& newline = true) {
 	mutexCout.lock();
-	std::cout << "\r    \r" << str << "\nyou:";
+	std::cout << "\r    \r" << str;
+	
+	if(newline)
+		std::cout << "\nyou:";
+	
+	std::cout << std::flush;
+		
 	mutexCout.unlock();
 };
 
@@ -45,19 +51,16 @@ int consoleChat(std::vector<std::string> exCommand) {
 		serd::Server* server = nullptr;
 		bool (*callBack)(Input&) = nullptr;
 		bool exit = false;
-		std::vector<std::thread> threads;
+		std::thread thread;
 
 		~Input() {
 			close();
 		};
-		void close() {
-			exit = true;
-
-			for (auto& thread : threads) {
+		void close(bool exit = true) {
+			this->exit = true;
+			
+			if (thread.joinable())
 				thread.join();
-			};
-
-			threads.clear();
 
 			if (server != nullptr) {
 				delete server;
@@ -68,11 +71,8 @@ int consoleChat(std::vector<std::string> exCommand) {
 				delete client;
 				client = nullptr;
 			};
-
-#if defined(_WIN32)
-			if (serd_lib::_WSAStartup)
-				WSACleanup();
-#endif
+			
+			this->exit = exit;
 		};
 	} input;
 	std::string command;
@@ -84,18 +84,27 @@ int consoleChat(std::vector<std::string> exCommand) {
 	};
 
 	menu["help"] = [](Input& input) -> bool {
-		std::string defPort = std::to_string(serd_lib::_DEFAULT_PORT);
-
-		showMessage("command start at '-' ");
-		showMessage("help	- get information.");
-		showMessage("exit	- close programm.");
-		showMessage("stop	- stop client or server");
-		showMessage("client	- connect to chat server.");
-		showMessage("		  Exemple:\"-client 192.168.50.204:3487\"");
-		showMessage("		  where 192.168.50.204 - server adrress");
-		showMessage("		  3487 - server port (default " + defPort + ")");
-		showMessage("server	- start chat server.");
-		showMessage("		  where 3487 - server port (default " + defPort + ")");
+		const std::string defPort(std::to_string(serd_lib::_DEFAULT_PORT));
+		struct : public std::string {
+			inline bool operator +=(const std::string& rhs) {
+				std::string* ptr = this;
+				*ptr+= (ptr->size() ? "\n" : "") + rhs;
+				return true;
+			};
+		} str;
+		
+		str+= "command start at '-'";
+		str+= "help   - get information.";
+		str+= "exit   - close programm.";
+		str+= "stop   - stop client or server.";
+		str+= "client - connect to chat server.";
+		str+= "         Exemple:\"-client 192.168.50.204:3487\"";
+		str+= "         where 192.168.50.204 - server adrress";
+		str+= "         3487 - server port (default " + defPort + ").";
+		str+= "server - start chat server.\n";
+		str+= "         where 3487 - server port (default " + defPort + ").";
+		
+		showMessage(str);
 
 		return true;
 	};
@@ -104,20 +113,7 @@ int consoleChat(std::vector<std::string> exCommand) {
 		return true;
 	};
 	menu["stop"] = [](Input& input) -> bool {
-		input.callBack = nullptr;
-
-		if (input.server != nullptr) {
-			delete input.server;
-			input.server = nullptr;
-			showMessage("server stop");
-		};
-
-		if (input.client != nullptr) {
-			delete input.client;
-			input.client = nullptr;
-			showMessage("client stop");
-		};
-
+		input.close(false);
 		return true;
 	};
 	menu["client"] = [](Input& input) -> bool {
@@ -125,7 +121,8 @@ int consoleChat(std::vector<std::string> exCommand) {
 			showMessage("Client not avalible, because server started.");
 			showMessage("Stop server first");
 			return false;
-		} else if (input.client != nullptr) {
+		}
+		else if (input.client != nullptr) {
 			showMessage("The client is already running.");
 			return false;
 		};
@@ -138,15 +135,18 @@ int consoleChat(std::vector<std::string> exCommand) {
 			if (ch == ':') {
 				cur = &port;
 				continue;
-			} else if (ch == ' ')
+			}
+			else if (ch == ' ') {
 				break;
+			};
 
 			*cur += ch;
 		};
 
 		if (port.empty()) {
 			input.client = new serd::Client((char*)addr.c_str());
-		} else {
+		}
+		else {
 			input.client = new serd::Client((char*)addr.c_str(), std::stoi(port));
 		};
 
@@ -166,7 +166,7 @@ int consoleChat(std::vector<std::string> exCommand) {
 
 			while (!input.exit && input.client->recv(message, input.exit)) {
 				if (!message.empty())
-					showMessage(input.client->toString() + ":" + message);
+					showMessage(message);
 			};
 
 			if (!input.exit && input.client->socketIsValid())
@@ -179,8 +179,8 @@ int consoleChat(std::vector<std::string> exCommand) {
 			input.callBack = nullptr;
 		};
 
-		input.threads.push_back(std::thread(threadRecv));
-
+		input.thread = std::thread(threadRecv);
+		
 		showMessage("ready...");
 
 		return true;
@@ -189,15 +189,17 @@ int consoleChat(std::vector<std::string> exCommand) {
 		if (input.server != nullptr) {
 			showMessage("The server is already running.");
 			return false;
-		} else if (input.client != nullptr) {
+		}
+		else if (input.client != nullptr) {
 			showMessage("Client started.\nServer not avalible.\nStop client first");
 			return false;
 		};
 
 		if (input.user.empty()) {
-			input.server = new serd::Server(input.exit);
-		} else {
-			input.server = new serd::Server(std::stoi(input.user), input.exit);
+			input.server = new serd::Server();
+		}
+		else {
+			input.server = new serd::Server(std::stoi(input.user));
 		};
 
 		if (input.server->haveError()) {
@@ -209,7 +211,7 @@ int consoleChat(std::vector<std::string> exCommand) {
 		};
 
 		input.callBack = [](Input& input) -> bool {
-			return input.server->send(input.user);
+			return input.server->send(input.server->serd_lib::Socket::toString() + ":" + input.user);
 		};
 
 		auto threadRecv = [&input]() {
@@ -221,7 +223,7 @@ int consoleChat(std::vector<std::string> exCommand) {
 
 					showMessage(str);
 
-					input.server->sendEx(str, client);
+					input.server->send(str, {}, {client});
 				};
 			};
 
@@ -235,8 +237,8 @@ int consoleChat(std::vector<std::string> exCommand) {
 			input.callBack = nullptr;
 		};
 
-		input.threads.push_back(std::thread(threadRecv));
-
+		input.thread = std::thread(threadRecv);
+		
 		showMessage("ready...");
 
 		return true;
@@ -244,7 +246,14 @@ int consoleChat(std::vector<std::string> exCommand) {
 
 	while (!input.exit) {
 		if (exCommand.empty()) {
-			std::getline(std::cin, input.user);
+			showMessage("you:", false);
+			
+			if(!std::getline(std::cin, input.user)) {
+				showMessage("Error cin");
+				std::cin.clear();
+				std::cin.sync();
+				continue;
+			};
 		} else {
 			input.user = exCommand[0];
 			exCommand.erase(exCommand.begin());
@@ -278,9 +287,8 @@ int consoleChat(std::vector<std::string> exCommand) {
 
 		if (menu.count(command))
 			menu[command](input);
-		else {
+		else
 			showMessage("command not found");
-		};
 	};
 
 	return 0;

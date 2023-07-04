@@ -3,6 +3,7 @@
 // tested by macOS 12.6.6, Window Server 2019
 //
 // Created by Denis (serdCpp)
+// -std=c++17
 
 #pragma once
 #ifndef serd_socketsTCP_h
@@ -14,17 +15,18 @@
 #include <set>
 #include <vector>
 #include <map>
+#include <mutex>
 
 #if defined(__linux__) || defined(__APPLE__)
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <poll.h>
-#include <unistd.h>
+	#include <sys/socket.h>
+	#include <arpa/inet.h>
+	#include <poll.h>
+	#include <unistd.h>
 #elif defined(_WIN32)
-#include <ws2tcpip.h>
-#pragma comment (lib, "Ws2_32.lib")
+	#include <ws2tcpip.h>
+	#pragma comment (lib, "Ws2_32.lib")
 #else
-#error Platform not supported
+	#error Platform not supported
 #endif
 
 namespace serd_lib {
@@ -49,13 +51,13 @@ namespace serd_lib {
 #elif defined (_WIN32)
 	constexpr int _SOCKET_ERROR = SOCKET_ERROR;
 	constexpr SocketFD _INVALID_SOCKET = INVALID_SOCKET;
-	bool _WSAStartup = false;
+	unsigned long _WSAStartup = 0;
+	bool _WSACleanup = true;
 #endif
 
 	int poll(pollfd* fds, unsigned long nfds, int& timeout) {
 #if defined(__linux__) || defined(__APPLE__)
 		if (nfds > UINT_MAX) {
-			//errno = E2BIG;
 			return -1;
 		};
 
@@ -66,47 +68,50 @@ namespace serd_lib {
 	};
 
 	class Socket {
-	private:
-		SocketFD sockfd;
-		sockaddr_in address;
-		std::string preview;
-		std::string err;
-	private:
-		void setPreview() {
-			char clientip[INET_ADDRSTRLEN];
-			inet_ntop(AF_INET, &(address.sin_addr), clientip, INET_ADDRSTRLEN);
-			preview = std::string(clientip) + ":" + std::to_string(ntohs(address.sin_port));
+	public:
+		std::string getError() {
+			std::string temp = mErr;
+			mErr.clear();
+			return temp;
+		};
+		inline bool haveError() const {
+			return !mErr.empty();
+		};
+		inline bool socketIsValid() const {
+			return mSockfd != _INVALID_SOCKET;
+		};
+		inline std::string toString() const {
+			return mPreview;
 		};
 	protected:
 		Socket() = delete;
-		Socket(const SocketFD& fd) : sockfd(fd), preview("unknown") {}; // lite mode for revc server
-		Socket(const sockaddr_in& address, const SocketFD& fd) : address(address), sockfd(fd) {
+		Socket(const sockaddr_in& address, const SocketFD& fd) : mAddress(address), mSockfd(fd) {
 			if (fd == _INVALID_SOCKET)
 				addError("set invalide fd");
 
 			setPreview();
 		};
-		Socket(const char* address, in_port_t port) : sockfd(_INVALID_SOCKET) {
-			memset(&this->address, 0, sizeof(this->address));
+		Socket(const char* address, const in_port_t& port) : mSockfd(_INVALID_SOCKET) {
+			memset(&mAddress, 0, sizeof(mAddress));
 
-			this->address.sin_family = AF_INET;
-			this->address.sin_port = htons(port);
+			mAddress.sin_family = AF_INET;
+			mAddress.sin_port = htons(port);
 
-			if (inet_pton(AF_INET, address, &this->address.sin_addr) <= 0) {
+			if (inet_pton(AF_INET, address, &mAddress.sin_addr) <= 0) {
 				addError("Invalid address/ Address not supported");
 				return;
 			};
 
 #if defined(_WIN32)
-			_WSAStartup = _WSAStartup || (WSAStartup(MAKEWORD(2, 2), new WSADATA) == 0);
-
-			if (!_WSAStartup) {
+			if(!_WSAStartup || (WSAStartup(MAKEWORD(2, 2), new WSADATA) != 0)) {
 				addError("Error WinSock version initializaion");
 				return;
 			};
+			
+			++_WSAStartup;
 #endif
 
-			if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) == _INVALID_SOCKET) {
+			if ((mSockfd = socket(AF_INET, SOCK_STREAM, 0)) == _INVALID_SOCKET) {
 				addError("Socket creation error");
 				return;
 			};
@@ -121,54 +126,40 @@ namespace serd_lib {
 		void close() {
 			if (getSockfd() != _INVALID_SOCKET) {
 #if defined(_WIN32)
-				closesocket(sockfd);
+				closesocket(mSockfd);
+				
+				if (_WSAStartup)
+					if(!(--_WSAStartup) && _WSACleanup)
+						WSACleanup();
 #else
-				::close(sockfd);
+				::close(mSockfd);
 #endif
-				sockfd = _INVALID_SOCKET;
+				mSockfd = _INVALID_SOCKET;
 			};
 		};
 		inline SocketFD getSockfd() const {
-			return sockfd;
-		};
-		inline std::string toString() const {
-			return preview;
+			return mSockfd;
 		};
 		inline sockaddr_in getAddress() const {
-			return address;
+			return mAddress;
 		};
 		inline void addError(const std::string& text) {
 #if defined(_WIN32)
-			err += (err.size() ? "\n" : "") + text + " #" + std::to_string(WSAGetLastError());
+			mErr += (mErr.size() ? "\n" : "") + text + " #" + std::to_string(WSAGetLastError());
 #else
-			err += (err.size() ? "\n" : "") + text;
+			mErr += (mErr.size() ? "\n" : "") + text;
 #endif
 		};
-	public:
-		std::string getError() {
-			std::string temp = err;
-			err.clear();
-			return temp;
-		};
-		inline bool haveError() const {
-			return !err.empty();
-		};
-		inline bool socketIsValid() const {
-			return sockfd != _INVALID_SOCKET;
-		};
-	public:
-		inline bool operator== (const Socket& rhs) const {
-			return (sockfd != _INVALID_SOCKET
-				&& sockfd == rhs.sockfd)
-				|| (address.sin_family == rhs.address.sin_family
-					&& address.sin_port == rhs.address.sin_port
-					&& address.sin_addr.s_addr == rhs.address.sin_addr.s_addr);
-		};
-		inline bool operator< (const Socket& rhs) const {
-			return sockfd < rhs.sockfd
-				|| address.sin_family < rhs.address.sin_family
-				|| address.sin_port < rhs.address.sin_port
-				|| address.sin_addr.s_addr < rhs.address.sin_addr.s_addr;
+	private:
+		SocketFD mSockfd;
+		sockaddr_in mAddress;
+		std::string mPreview;
+		std::string mErr;
+	private:
+		void setPreview() {
+			char clientip[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, &(mAddress.sin_addr), clientip, INET_ADDRSTRLEN);
+			mPreview = std::string(clientip) + ":" + std::to_string(ntohs(mAddress.sin_port));
 		};
 	};
 
@@ -177,38 +168,27 @@ namespace serd_lib {
 namespace serd {
 
 	class Client : public serd_lib::Socket {
-		friend class Server;
-	private:
-		std::mutex mutexSend;
-		bool in_stop = false;
 	public:
 		Client() = delete;
 		Client(const char* address) : Socket(address) {};
 		Client(const char* address, serd_lib::in_port_t port) : Socket(address, port) {};
-		Client(const sockaddr_in& address, serd_lib::SocketFD& fd) : Socket(address, fd) {};
-		~Client() {
-			in_stop = true;
-		};
+		Client(const sockaddr_in& address, const serd_lib::SocketFD& fd) : Socket(address, fd) {};
+		~Client() {};
 	private:
-		Client(const serd_lib::SocketFD& fd) : Socket(fd) {}; // lite mode for revc server
+		std::mutex mMutexSend;
 	public:
 		bool connect() {
-			if (haveError()) {
+			if (haveError())
 				return false;
-			};
 
 			sockaddr_in addr = getAddress();
 
-			if (::connect(getSockfd(), (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			if (::connect(getSockfd(), (struct sockaddr*)&addr, sizeof(addr)) < 0)
 				addError("Connection Failed");
-				return false;
-			};
 
-			mutexSend.unlock();
-
-			return true;
+			return !haveError();
 		};
-		bool recv(std::string& message, const bool& stop) {
+		bool recv(std::string& message, const bool& stopFlag) {
 			char buffer[serd_lib::_BUFFER_SIZE];
 			serd_lib::ssize_t valread;
 			pollfd fds;
@@ -222,7 +202,7 @@ namespace serd {
 			fds.fd = getSockfd();
 			fds.events = POLLIN;
 
-			while (!stop && !in_stop && socketIsValid()) {
+			while (!stopFlag && socketIsValid()) {
 				ready = serd_lib::poll(&fds, nfds, timeout);
 
 				if (ready == 0)
@@ -259,33 +239,23 @@ namespace serd {
 				return false;
 			};
 
-			mutexSend.lock();
+			mMutexSend.lock();
 			bool result = ::send(getSockfd(), message.c_str(), message.size(), 0) != serd_lib::_SOCKET_ERROR;
-			mutexSend.unlock();
+			mMutexSend.unlock();
 
 			if (!result)
 				addError("Send failed with error");
 
 			return result;
 		};
-		inline std::string toString() {
-			return Socket::toString();
-		};
 	};
 
 	class Server : public serd_lib::Socket {
 	public:
 		typedef std::vector<std::pair<Client*, std::string>> ReturnRevc;
-	private:
-		std::map<serd_lib::SocketFD, Client*> clients;
-		std::vector<std::thread> threads;
-		bool newClientAccept = false;
-		bool in_stop = false;
-		std::mutex mutexClients;
 	public:
-		Server() = delete;
 		Server(const Server&) = delete;
-		Server(serd_lib::in_port_t port, bool& stop) : Socket((char*)"0.0.0.0", port) {
+		Server(serd_lib::in_port_t port) : Socket((char*)"0.0.0.0", port) {
 			sockaddr_in addr = getAddress();
 			int opt = 1;
 			int addrlen = sizeof(addr);
@@ -304,70 +274,18 @@ namespace serd {
 				addError("listen() failed.");
 				return;
 			};
-
-			threads.push_back(std::thread([this, &stop]() {this->accept(stop); }));
+			
+			mThread = std::thread([this]() {this->thrAccept(); });
 		};
-		Server(bool& stop) : Server(serd_lib::_DEFAULT_PORT, stop) {};
+		Server() : Server(serd_lib::_DEFAULT_PORT) {};
 		~Server() {
-			in_stop = true;
-
-			for (auto& thread : threads)
-				thread.join();
-
-			threads.clear();
-
-			for (auto& [fd, client] : clients)
-				delete client;
-
-			clients.clear();
-		};
-	private:
-		void accept(bool& stop) {
-			sockaddr_in addr;
-			serd_lib::SocketFD clientfd = serd_lib::_INVALID_SOCKET;
-			pollfd fds;
-			unsigned int nfds(1);
-			int timeout(std::chrono::milliseconds(serd_lib::_TIME_BETWEEN_TRIES).count());
-			int ready;
-			int addrlen = sizeof(addr);
-
-			memset(&fds, 0, sizeof(fds));
-			fds.fd = getSockfd();
-			fds.events = POLLIN;
-
-			while (!stop && !in_stop && socketIsValid()) {
-				ready = serd_lib::poll(&fds, nfds, timeout);
-
-				if (ready == 0)
-					continue;
-
-				if (ready < 0) {
-					addError("poll() failed.");
-					continue;
-				};
-
-				clientfd = ::accept(fds.fd, (struct sockaddr*)&addr, (socklen_t*)&addrlen);
-
-				if (clientfd == serd_lib::_INVALID_SOCKET) {
-					addError("Accept failed. invalid socket");
-					continue;
-				};
-
-				if (clients.count(clientfd)) {
-					addError("Accept failed. Client (" + clients.at(clientfd)->toString() + ") dublicate.");
-					continue;
-				};
-
-				Client* client = new Client(addr, clientfd);
-
-				mutexClients.lock();
-				clients.insert({ clientfd, client });
-				newClientAccept = true;
-				mutexClients.unlock();
-			};
+			mStop = true;
+			
+			if(mThread.joinable())
+				mThread.join();
 		};
 	public:
-		bool send(const std::string& message, const std::set<Client*>& selected, const std::set<Client*>& excluding) {
+		bool send(const std::string& message, const std::set<Client*>& selected = {}, const std::set<Client*>& excluding = {}) {
 			std::vector<std::thread> threads;
 			std::mutex mutexError;
 			std::string error;
@@ -383,7 +301,7 @@ namespace serd {
 				};
 			};
 
-			for (const auto& [fd, client] : clients) {
+			for (const auto& [fd, client] : mClients) {
 				if (usingExcluding && excluding.count(client))
 					continue;
 				if (usingSelected && !selected.count(client))
@@ -402,130 +320,200 @@ namespace serd {
 
 			return false;
 		};
-		bool send(const std::string& message, const std::set<Client*>& selected) {
-			return send(message, selected, {});
-		};
-		bool send(const std::string& message, Client* selected) {
-			return send(message, { selected }, {});
-		};
-		bool send(const std::string& message) {
-			return send(message, {}, {});
-		};
-		bool sendEx(const std::string& message, const std::set<Client*>& excluding) {
-			return send(message, {}, excluding);
-		};
-		bool sendEx(const std::string& message, Client* excluding) {
-			return send(message, {}, { excluding });
-		};
 		bool revc(ReturnRevc& messages, bool& stop, const std::string& disconnectMessage) {
-			char buffer[serd_lib::_BUFFER_SIZE];
-			serd_lib::ssize_t valread;
-			std::string message;
-
-			std::vector<pollfd> fds;
-			std::set<serd_lib::SocketFD> fdToDelete;
 			int ready;
 			int timeout(std::chrono::milliseconds(serd_lib::_TIME_BETWEEN_TRIES).count());
-			unsigned long nfds;
-
-			auto refillFds = [this, &fdToDelete, &fds, &messages, &disconnectMessage, &nfds]() {
-				fds.clear();
-
-				mutexClients.lock();
-
-				for (const auto& [fd, client] : clients) {
-					if (!client->socketIsValid()) {
-						if (!disconnectMessage.empty()) {
-							messages.push_back({ client, disconnectMessage });
-						};
-
-						fdToDelete.insert(fd);
-					};
-
-					fds.push_back({ fd, POLLIN });
-				};
-
-				newClientAccept = false;
-				mutexClients.unlock();
-
-				nfds = fds.size();
-			};
-			auto clientDelete = [this, &fdToDelete]() {
-				if (fdToDelete.empty())
-					return;
-
-				mutexClients.lock();
-				for (const auto& fd : fdToDelete) {
-					if (!clients.count(fd))
-						continue;
-
-					delete clients.at(fd);
-					clients.erase(fd);
-				};
-				mutexClients.unlock();
-
-				fdToDelete.clear();
-			};
-
-			newClientAccept = true;
-
+			
+			std::vector<pollfd> fds;
+			std::vector<serd_lib::SocketFD> fdToDelete;
+			std::vector<std::thread> threads;
+			
 			messages.clear();
+			
+			auto revcFun = [this, &messages, &fdToDelete](const serd_lib::SocketFD fd) -> void {
+				char buffer[serd_lib::_BUFFER_SIZE];
+				std::string message;
+				serd_lib::ssize_t valread;
+				
+				do {
+					valread = ::recv(fd, buffer, serd_lib::_BUFFER_SIZE - 1, 0);
 
-			while (!stop && !in_stop && socketIsValid() && messages.empty()) {
-				if (newClientAccept) {
-					refillFds();
-					clientDelete();
+					if (valread > 0) {
+						buffer[valread] = '\0';
+						message += buffer;
+					} else {
+						fdToDelete.push_back(fd);
+						break;
+					};
+				} while (valread == serd_lib::_BUFFER_SIZE - 1);
+
+				if (!message.empty()) {
+					messages.push_back({ this->mClients.at(fd), message });
 				};
+			};
 
+			while (socketIsValid() && !stop && !mStop && messages.empty()) {
+				fds = mClients.getPollVector();
+				
 				if (fds.empty()) {
 					std::this_thread::sleep_for(serd_lib::_TIME_BETWEEN_TRIES);
 					continue;
 				};
 
-				ready = serd_lib::poll(&fds[0], nfds, timeout);
+				ready = serd_lib::poll(&fds[0], static_cast<unsigned long>(fds.size()), timeout);
 
 				if (ready == 0) {
 					continue;
-				};
-
-				if (ready < 0) {
+				} else if (ready < 0) {
 					addError("poll() failed.");
 					close();
 					return false;
 				};
 
-				for (const auto& fd : fds) {
-					if (fd.revents == 0)
-						continue;
-
-					message.clear();
-
-					do {
-						valread = ::recv(fd.fd, buffer, serd_lib::_BUFFER_SIZE - 1, 0);
-
-						if (valread > 0) {
-							buffer[valread] = '\0';
-							message += buffer;
-						} else {
-							fdToDelete.insert(fd.fd);
-							break;
-						};
-					} while (valread == serd_lib::_BUFFER_SIZE - 1);
-
-					if (!message.empty()
-						&& clients.count(fd.fd)
-						&& !fdToDelete.count(fd.fd)) {
-						messages.push_back({ clients.at(fd.fd), message });
-					};
+				for (const auto& element : fds) {
+					if (element.revents != 0)
+						threads.push_back(std::thread(revcFun, element.fd));
 				};
-
-				clientDelete();
+				
+				for(auto& thread : threads)
+					thread.join();
+				
+				threads.clear();
+				
+				mClients.deleteFds(fdToDelete);
+				fdToDelete.clear();
 			};
 
 			return true;
 		};
-	};
+	private:
+		class Clients {
+			typedef std::map<serd_lib::SocketFD, Client*> MapType;
+		public:
+			void add(const sockaddr_in addr, const serd_lib::SocketFD fd) {
+				if(fd == serd_lib::_INVALID_SOCKET || mMap.count(fd) > 0)
+					return;
+				
+				mMutex.lock();
+				mMap.insert({ fd, new Client(addr, fd) });
+				mNeedRebuild = true;
+				mMutex.unlock();
+			};
+			void deleteFds(const std::vector<serd_lib::SocketFD> fds) {
+				mMutex.lock();
+				deleteFdsWithoutMutex(fds);
+				mMutex.unlock();
+			};
+			std::vector<pollfd> getPollVector() {
+				if(mNeedRebuild) {
+					std::vector<serd_lib::SocketFD> fdToDelete;
+					mMutex.lock();
+					mPollVector.clear();
+					
+					for (const auto& [fd, client] : mMap) {
+						if (!client->socketIsValid())
+							fdToDelete.push_back(fd);
+						else
+							mPollVector.push_back({ fd, POLLIN });
+					};
+					
+					deleteFdsWithoutMutex(fdToDelete);
+					
+					mNeedRebuild = false;
+					
+					mMutex.unlock();
+				};
+				
+				return mPollVector;
+			};
+		public:
+			serd_lib::ssize_t count(serd_lib::SocketFD fd) {
+				return mMap.count(fd);
+			};
+			Client* at(serd_lib::SocketFD fd) {
+				return mMap.at(fd);
+			};
+		public:
+			inline MapType::iterator begin() {
+				return mMap.begin();
+			};
+			inline MapType::iterator end() {
+				return mMap.end();
+			};
+			inline MapType::const_iterator begin() const {
+				return mMap.begin();
+			};
+			inline MapType::const_iterator end() const {
+				return mMap.end();
+			};
+		public:
+			~Clients() {
+				mMutex.lock();
+				
+				for(auto& [fd, client] : mMap) {
+					delete client;
+				};
+				
+				mMap.clear();
+			};
+		private:
+			MapType mMap;
+			std::mutex mMutex;
+			std::vector<pollfd> mPollVector;
+			bool mNeedRebuild = false;
+			//std::vector<std::string> mPrevDisconnected;
+		private:
+			void deleteFdsWithoutMutex(const std::vector<serd_lib::SocketFD> fds) {
+				Client* client = nullptr;
+				
+				for(const auto& fd : fds) {
+					if (count(fd)) {
+						client = at(fd);
+						//mPrevDisconnected.push_back(client->toString());
+						delete client;
+						mMap.erase(fd);
+					};
+				};
+				
+				mNeedRebuild = true;
+			};
+		} mClients;
+		bool mStop = false;
+		std::thread mThread;
+	private:
+		void thrAccept() {
+			sockaddr_in addr;
+			serd_lib::SocketFD clientfd = serd_lib::_INVALID_SOCKET;
+			pollfd fds;
+			int timeout(std::chrono::milliseconds(serd_lib::_TIME_BETWEEN_TRIES).count());
+			int ready;
+			int addrlen = sizeof(addr);
 
+			memset(&fds, 0, sizeof(fds));
+			fds.fd = getSockfd();
+			fds.events = POLLIN;
+
+			while (!mStop && socketIsValid()) {
+				ready = serd_lib::poll(&fds, static_cast<unsigned int>(1), timeout);
+
+				if (ready == 0)
+					continue;
+				else if (ready < 0) {
+					addError("poll() failed.");
+					continue;
+				};
+
+				clientfd = ::accept(fds.fd, (struct sockaddr*)&addr, (socklen_t*)&addrlen);
+
+				if (clientfd == serd_lib::_INVALID_SOCKET)
+					addError("Accept failed. invalid socket");
+				else if (mClients.count(clientfd))
+					addError("Accept failed. Client (" + mClients.at(clientfd)->toString() + ") dublicate.");
+				else
+					mClients.add(addr, clientfd);
+			};
+		};
+	};
 };
 
 #endif /* serd_socketsTCP_h */

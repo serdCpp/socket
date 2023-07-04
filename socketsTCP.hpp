@@ -1,4 +1,3 @@
-// work in progress
 // TCP socket server & client
 // tested by macOS 12.6.6, Window Server 2019
 //
@@ -90,6 +89,9 @@ namespace serd_lib {
 				addError("set invalide fd");
 
 			setPreview();
+#if defined(_WIN32)
+			WSAStartup();
+#endif
 		};
 		Socket(const char* address, const in_port_t& port) : mSockfd(_INVALID_SOCKET) {
 			memset(&mAddress, 0, sizeof(mAddress));
@@ -103,12 +105,7 @@ namespace serd_lib {
 			};
 
 #if defined(_WIN32)
-			if(!_WSAStartup || (WSAStartup(MAKEWORD(2, 2), new WSADATA) != 0)) {
-				addError("Error WinSock version initializaion");
-				return;
-			};
-			
-			++_WSAStartup;
+			WSAStartup();
 #endif
 
 			if ((mSockfd = socket(AF_INET, SOCK_STREAM, 0)) == _INVALID_SOCKET) {
@@ -127,15 +124,15 @@ namespace serd_lib {
 			if (getSockfd() != _INVALID_SOCKET) {
 #if defined(_WIN32)
 				closesocket(mSockfd);
-				
-				if (_WSAStartup)
-					if(!(--_WSAStartup) && _WSACleanup)
-						WSACleanup();
 #else
 				::close(mSockfd);
 #endif
 				mSockfd = _INVALID_SOCKET;
 			};
+
+#if defined(_WIN32)
+			WSACleanup();
+#endif
 		};
 		inline SocketFD getSockfd() const {
 			return mSockfd;
@@ -161,7 +158,23 @@ namespace serd_lib {
 			inet_ntop(AF_INET, &(mAddress.sin_addr), clientip, INET_ADDRSTRLEN);
 			mPreview = std::string(clientip) + ":" + std::to_string(ntohs(mAddress.sin_port));
 		};
+#if defined(_WIN32)
+		inline bool WSAStartup() {
+			if (_WSAStartup == 0 && (::WSAStartup(MAKEWORD(2, 2), new WSADATA) != 0)) {
+				addError("Error WinSock version initializaion");
+				return false;
+			};
+
+			++_WSAStartup;
+			return true;
+		};
+		inline void WSACleanup() {
+			if (_WSACleanup && --_WSAStartup == 0)
+				::WSACleanup();
+		};
+#endif
 	};
+
 
 };
 
@@ -455,6 +468,7 @@ namespace serd {
 				};
 				
 				mMap.clear();
+				mMutex.unlock();
 			};
 		private:
 			MapType mMap;

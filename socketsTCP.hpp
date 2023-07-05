@@ -21,6 +21,8 @@
 	#include <arpa/inet.h>
 	#include <poll.h>
 	#include <unistd.h>
+	#include <climits>
+	#include <cstring>
 #elif defined(_WIN32)
 	#include <ws2tcpip.h>
 	#pragma comment (lib, "Ws2_32.lib")
